@@ -8,6 +8,8 @@
 // const API_BASE_URL = 'https://saluncode.onrender.com';
 
 //sameer backend
- const API_BASE_URL = 'http://192.168.1.14:5000';
+ // const API_BASE_URL = 'http://192.168.1.14:5000';
+ const API_BASE_URL = 'https://saloon-wlrg.onrender.com';
+
 
 export { API_BASE_URL };
