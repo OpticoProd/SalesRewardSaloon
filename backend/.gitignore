@@ -1,0 +1,62 @@
+```
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+
+# Logs
+logs
+*.log
+*.out
+*.pid
+*.seed
+*.pid.lock
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/editor files
+.vscode/
+.idea/
+*.iml
+
+# Coverage/test reports
+coverage/
+.nyc_output/
+jest-cache/
+jest-test-results.json
+*.lcov
+
+# Environment & secrets
+# .env
+# .env.local
+# .env.*.local
+# .env.production
+# .env.development
+
+# Database
+*.db
+*.sqlite
+
+# Debugging
+*.tgz
+*.tar.gz
+
+# Lockfiles (optional, pick one package manager)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+```
