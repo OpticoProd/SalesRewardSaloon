@@ -31,9 +31,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { io as ioClient } from 'socket.io-client';
 import HistoryComponent from '../components/HistoryComponent';
 import TopUsers from '../components/TopUsers';
-import { API_BASE_URL } from '../config/baseURL';
+import { BASE_URL } from '../config/baseURL';
 
-const BASE_URL = API_BASE_URL;
+
 const { width } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 
@@ -409,7 +409,7 @@ export default function AdminDashboard({ navigation }) {
         return;
       }
 
-      const url = `${API_BASE_URL}/admins/${adminUser.id}/password`;
+      const url = `${BASE_URL}/admins/${adminUser.id}/password`;
       console.log('🔹 API URL:', url);
 
       const bodyData = {

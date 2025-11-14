@@ -4,7 +4,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
-import { API_BASE_URL } from '../config/baseURL';
+import { BASE_URL } from '../config/baseURL';
 
 const HistoryComponent = forwardRef(({ isDarkMode, colors, initialHistory = null, initialUser = null }, ref) => {
   const [history, setHistory] = useState([]);
@@ -71,7 +71,7 @@ const HistoryComponent = forwardRef(({ isDarkMode, colors, initialHistory = null
       const token = await AsyncStorage.getItem('token');
       if (!token) throw new Error('Token not found');
 
-      const res = await axios.get(`${API_BASE_URL}/history/user/${user.id}`, {
+      const res = await axios.get(`${BASE_URL}/history/user/${user.id}`, {
         headers: { Authorization: token },
       });
 

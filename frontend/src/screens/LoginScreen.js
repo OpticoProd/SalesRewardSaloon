@@ -9,8 +9,7 @@ import Toast from 'react-native-toast-message';
 import ThemeToggle from '../components/ThemeToggle';
 import { ThemeContext } from '../ThemeContext';
 
-import { API_BASE_URL } from '../config/baseURL';
-const BASE_URL = API_BASE_URL;
+import { BASE_URL } from '../config/baseURL';
 
 export default function LoginScreen({ navigation, route }) {
   // Theme and context for dark/light mode
@@ -19,14 +18,49 @@ export default function LoginScreen({ navigation, route }) {
 
   // State variables for form inputs and UI
   const [mobile, setMobile] = useState('');
+  const [mobileError, setMobileError] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [role, setRole] = useState(route.params?.role || 'user');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false); // Password visibility toggle
 
+  // Validate form inputs
+  const validateForm = () => {
+    let isValid = true;
+
+    // Validate mobile
+    if (!mobile) {
+      setMobileError('Mobile number is required');
+      isValid = false;
+    } else if (mobile.length !== 10) {
+      setMobileError('Mobile number should be 10 digits');
+      isValid = false;
+    } else {
+      setMobileError('');
+    }
+
+    // Validate password
+    if (!password) {
+      setPasswordError('Password is required');
+      isValid = false;
+    } else if (password.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      isValid = false;
+    } else {
+      setPasswordError('');
+    }
+
+    return isValid;
+  };
+
   // Handle user login
   const handleLogin = async () => {
+    if (!validateForm()) {
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await axios.post(`${BASE_URL}/login`, {
@@ -42,7 +76,7 @@ export default function LoginScreen({ navigation, route }) {
         role: response.data.user.role,
       };
 
-      // ✅ Role validation
+      // Role validation
       if (userData.role === 'superadmin') {
         // superadmin bypasses picker
       } else if (userData.role !== role) {
@@ -61,7 +95,7 @@ export default function LoginScreen({ navigation, route }) {
         text2: `Welcome, ${userData.name}!`,
       });
 
-      // ✅ Navigate based on actual role
+      // Navigate based on actual role
       if (userData.role === 'admin') {
         navigation.replace('AdminDashboard');
       } else if (userData.role === 'superadmin') {
@@ -74,7 +108,6 @@ export default function LoginScreen({ navigation, route }) {
       Toast.show({
         type: 'error',
         text1: 'Login Failed',
-        // ✅ CHANGE: Check for the server's message first here too.
         text2: err.response?.data?.message || err.message || 'Please check your credentials.',
       });
     } finally {
@@ -99,30 +132,48 @@ export default function LoginScreen({ navigation, route }) {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Theme toggle button */}
       <ThemeToggle style={styles.toggle} />
+
       {/* Login title */}
       <Text style={[styles.title, { color: isDarkMode ? '#FFFFFF' : colors.text }]}>Login</Text>
+
       {/* Mobile number input */}
       <TextInput
         label="Mobile Number"
         value={mobile}
-        onChangeText={setMobile}
+        onChangeText={text => {
+          const filteredText = text.replace(/[^0-9]/g, '');
+          setMobile(filteredText);
+          setMobileError('');
+        }}
         style={styles.input}
         theme={{ colors: { text: isDarkMode ? '#FFFFFF' : colors.text, primary: colors.primary } }}
         mode="outlined"
         keyboardType="phone-pad"
+        maxLength={10}
+        error={!!mobileError}
       />
+      {mobileError ? (
+        <Text style={[styles.fieldError, { color: isDarkMode ? '#FF5555' : colors.error }]}>
+          {mobileError}
+        </Text>
+      ) : null}
+
       {/* Password input with visibility toggle */}
       <View style={styles.passwordContainer}>
         <TextInput
           label="Password"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={text => {
+            setPassword(text);
+            setPasswordError('');
+          }}
           secureTextEntry={!showPassword}
           style={[styles.input, styles.passwordInput]}
           theme={{
             colors: { text: isDarkMode ? '#FFFFFF' : colors.text, primary: colors.primary },
           }}
           mode="outlined"
+          error={!!passwordError}
         />
         <IconButton
           icon={showPassword ? 'eye-off' : 'eye'}
@@ -132,6 +183,12 @@ export default function LoginScreen({ navigation, route }) {
           style={styles.eyeIcon}
         />
       </View>
+      {passwordError ? (
+        <Text style={[styles.fieldError, { color: isDarkMode ? '#FF5555' : colors.error }]}>
+          {passwordError}
+        </Text>
+      ) : null}
+
       {/* Role selection picker */}
       <View style={[styles.pickerContainer, { backgroundColor: isDarkMode ? '#444' : '#fff' }]}>
         <Picker
@@ -142,15 +199,17 @@ export default function LoginScreen({ navigation, route }) {
         >
           <Picker.Item label="User" value="user" />
           <Picker.Item label="Admin" value="admin" />
-          {/* <Picker.Item label="Super Admin" value="superadmin" /> */}
+          {/* Super Admin option commented out to enforce picker bypass for superadmin */}
         </Picker>
       </View>
-      {/* Error message */}
+
+      {/* General error message (e.g., server errors) */}
       {error ? (
         <Text style={[styles.error, { color: isDarkMode ? '#FF5555' : colors.error }]}>
           {error}
         </Text>
       ) : null}
+
       {/* Loading indicator or login button */}
       {loading ? (
         <ActivityIndicator size="large" color={colors.primary} style={styles.loading} />
@@ -162,15 +221,18 @@ export default function LoginScreen({ navigation, route }) {
           buttonColor={colors.primary}
           textColor={isDarkMode ? '#FFFFFF' : '#212121'}
           elevation={5}
+          loading={loading}
+          disabled={loading}
         >
           Login
         </Button>
       )}
+
       {/* Back to Home button */}
       <Button
         mode="outlined"
         onPress={() => navigation.navigate('Home')}
-        style={styles.button}
+        style={styles.backButton}
         textColor={isDarkMode ? '#FFFFFF' : colors.text}
         elevation={2}
       >
@@ -189,8 +251,9 @@ const styles = StyleSheet.create({
   },
   toggle: {
     position: 'absolute',
-    top: 20,
+    top: 50,
     right: 20,
+    zIndex: 1,
   },
   title: {
     fontSize: 32,
@@ -202,14 +265,15 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   input: {
-    marginVertical: 15,
+    marginVertical: 8,
     backgroundColor: 'transparent',
     borderRadius: 8,
   },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 15,
+    marginVertical: 8,
+    position: 'relative',
   },
   passwordInput: {
     flex: 1,
@@ -217,13 +281,17 @@ const styles = StyleSheet.create({
   eyeIcon: {
     position: 'absolute',
     right: 10,
+    top: '50%',
+    marginTop: -12,
   },
   pickerContainer: {
     width: '100%',
     borderRadius: 12,
     elevation: 4,
-    marginVertical: 15,
+    marginVertical: 8,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
   picker: {
     height: 50,
@@ -238,11 +306,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
   },
+  backButton: {
+    marginTop: 10,
+    marginBottom: 20,
+    borderRadius: 12,
+    paddingVertical: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
   error: {
     textAlign: 'center',
     marginVertical: 10,
     fontSize: 16,
     fontWeight: '500',
+  },
+  fieldError: {
+    fontSize: 14,
+    marginTop: 4,
+    marginBottom: 8,
+    marginLeft: 4,
+    fontWeight: '400',
   },
   loading: {
     marginVertical: 20,

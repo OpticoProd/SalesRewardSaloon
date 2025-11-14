@@ -1,3 +1,4 @@
+
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import axios from 'axios';
@@ -18,8 +19,7 @@ import { Button, TextInput, useTheme } from 'react-native-paper';
 import Toast from 'react-native-toast-message';
 import ThemeToggle from '../components/ThemeToggle';
 import { ThemeContext } from '../ThemeContext';
-import { API_BASE_URL } from '../config/baseURL';
-const BASE_URL = API_BASE_URL;
+import { BASE_URL } from '../config/baseURL';
 
 const { width } = Dimensions.get('window');
 
@@ -417,6 +417,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 8,
+    marginBottom: 40,
     width: width > 600 ? '40%' : '100%',
   },
   errorText: {

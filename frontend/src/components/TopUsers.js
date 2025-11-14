@@ -3,7 +3,7 @@ import { useTheme } from '@react-navigation/native';
 import axios from 'axios';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
-import { API_BASE_URL } from '../config/baseURL';
+import { BASE_URL } from '../config/baseURL';
 
 export default function TopUsers() {
   const { colors } = useTheme();
@@ -21,8 +21,8 @@ const fetchTop = useCallback(async () => {
     console.log('Token fetched:', token); // ✅ token mil raha hai ya nahi
     if (!token) throw new Error('No token found');
 
-    console.log('Making API request to:', `${API_BASE_URL}/stats/top-users`);
-    const res = await axios.get(`${API_BASE_URL}/stats/top-users`, {
+    console.log('Making API request to:', `${BASE_URL}/stats/top-users`);
+    const res = await axios.get(`${BASE_URL}/stats/top-users`, {
       headers: { Authorization: token }, // Direct token as backend expects
     });
 

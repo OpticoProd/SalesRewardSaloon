@@ -11,6 +11,7 @@ import {
   Alert,
   BackHandler,
   FlatList,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -23,23 +24,24 @@ import { Badge, Button, Card, TextInput, useTheme } from 'react-native-paper';
 import Toast from 'react-native-toast-message';
 import { io as ioClient } from 'socket.io-client';
 import ThemeToggle from '../components/ThemeToggle';
+import { BASE_URL } from '../config/baseURL';
 import { ThemeContext } from '../ThemeContext';
-import { API_BASE_URL } from '../config/baseURL';
-const BASE_URL = API_BASE_URL;
-
 const isWeb = Platform.OS === 'web';
-
 export default function SuperAdminDashboard({ navigation }) {
   const { colors } = useTheme();
   const { isDarkMode } = useContext(ThemeContext);
   const [notifications, setNotifications] = useState([]);
   const [unreadSuperAdmin, setUnreadSuperAdmin] = useState(0);
-  const [rewards, setRewards] = useState([]);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  // New states for Set Limit Modal
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [selectedAdminForLimit, setSelectedAdminForLimit] = useState(null);
+  const [userLimitInput, setUserLimitInput] = useState('');
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <TouchableOpacity
-          onPress={() => setCurrentTab('history')}
+          onPress={() => setShowNotificationsModal(true)}
           style={{ marginRight: 16, position: 'relative' }}
         >
           <MaterialIcons
@@ -56,11 +58,6 @@ export default function SuperAdminDashboard({ navigation }) {
       ),
     });
   }, [navigation, unreadSuperAdmin, isDarkMode, colors.primary]); // new
-  
-  
-  useEffect(() => {
-  fetchRewards();
-}, [fetchRewards]);
   // State Declarations
   const [admins, setAdmins] = useState([]);
   const [users, setUsers] = useState([]);
@@ -73,7 +70,6 @@ export default function SuperAdminDashboard({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [currentTab, setCurrentTab] = useState('home');
-  const [superHistory, setSuperHistory] = useState([]);
   const [superAdmin, setSuperAdmin] = useState(null);
   const [selectedAdminId, setSelectedAdminId] = useState(null);
   const [userBarcodes, setUserBarcodes] = useState([]);
@@ -90,8 +86,6 @@ export default function SuperAdminDashboard({ navigation }) {
   const [selectedRangeId, setSelectedRangeId] = useState('');
   const [adminRanges, setAdminRanges] = useState([]);
   const [pointsPerScan, setPointsPerScan] = useState('50');
-  const [filteredUser, setFilteredUsers] = useState([]);
-
   // useCallback Functions (in Dependency Order)
   const showConfirmDialog = useCallback(
     (title, message, onConfirm) => {
@@ -110,7 +104,6 @@ export default function SuperAdminDashboard({ navigation }) {
     },
     [isWeb]
   );
-
   const handleUnauthorized = useCallback(
     async error => {
       if (error.response?.status === 401) {
@@ -123,7 +116,6 @@ export default function SuperAdminDashboard({ navigation }) {
     },
     [navigation]
   );
-
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -136,11 +128,13 @@ export default function SuperAdminDashboard({ navigation }) {
       ]);
       const validUsers = usersRes.data.filter(user => user.name && user.mobile);
       const sortedUsers = validUsers.sort((a, b) => {
+        // Pending requests first
+        if (a.status === 'pending' && b.status !== 'pending') return -1;
+        if (b.status === 'pending' && a.status !== 'pending') return 1;
+        // Then approved by points desc
         if (a.status === 'approved' && b.status === 'approved') return b.points - a.points;
         if (a.status === 'approved') return -1;
         if (b.status === 'approved') return 1;
-        if (a.status === 'pending' && b.status !== 'pending') return -1;
-        if (b.status === 'pending' && a.status !== 'pending') return 1;
         return 0;
       });
       setUsers(sortedUsers.filter(user => user.role === 'user'));
@@ -165,69 +159,20 @@ export default function SuperAdminDashboard({ navigation }) {
       setLoading(false);
     }
   }, [handleUnauthorized]);
-
-
-
-  const fetchRewards = useCallback(async () => {
-  try {
-    const token = await AsyncStorage.getItem('token');
-    if (!token) return;
-    const res = await axios.get(`${BASE_URL}/rewards`, {
-      headers: { Authorization: token },
-    });
-    // You can store rewards in state if you display them
-    // setRewards(res.data);
-    console.log('Rewards refreshed:', res.data);
-  } catch (err) {
-    console.warn('fetchRewards error:', err);
-  }
-}, []);
-const fetchNotifications = useCallback(async () => {
-
-  try {
-    const token = await AsyncStorage.getItem('token');
-    
-
-    if (!token) {
-      console.warn("❌ No token found — skipping API call");
-      return;
-    }
-
-    const response = await axios.get(`${BASE_URL}/notifications`, {
-      headers: { Authorization: token },
-    });
-
-    const data = response.data;
-
-    if (!data || !Array.isArray(data)) {
-      console.warn("⚠️ Response data is undefined or not an array:", response);
-      return;
-    }
-    
-    // 🟢 Sort newest first
-    const sorted = data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    setNotifications(sorted);
-  } catch (error) {
-    console.error("💥 Error fetching notifications:", error.message);
-  }
-}, []);
-
-  // NEW - fetch history for superadmin (all admins/users)
-  const fetchSuperHistory = useCallback(async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('token');
-      if (!token) throw new Error('No token found');
-      const response = await axios.get(`${BASE_URL}/history/admin`, {
+      if (!token) return;
+      const response = await axios.get(`${BASE_URL}/notifications`, {
         headers: { Authorization: token },
       });
-      console.log("📜 Super History API Response:", response.data);
-      setSuperHistory(response.data || []);
+      // Sort by date to ensure newest is first
+      const sorted = response.data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setNotifications(sorted);
     } catch (error) {
-      console.error('Error fetching super history:', error.message);
+      console.error('Error fetching notifications:', error);
     }
-  }, [handleUnauthorized]);
-
+  }, []);
   const fetchAdminRanges = useCallback(async () => {
     setLoading(true);
     try {
@@ -248,7 +193,6 @@ const fetchNotifications = useCallback(async () => {
       setLoading(false);
     }
   }, [handleUnauthorized]);
-
   const handleViewAdminPassword = useCallback(
     adminId => {
       const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(adminId);
@@ -291,30 +235,35 @@ const fetchNotifications = useCallback(async () => {
     },
     [handleUnauthorized, showConfirmDialog]
   );
-
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
       const token = await AsyncStorage.getItem('token');
-
       const url = selectedAdminForUser
         ? `${BASE_URL}/users?adminId=${selectedAdminForUser}`
         : `${BASE_URL}/users`;
-
       const res = await axios.get(url, { headers: { Authorization: token } });
-      // console.log("saara data dikha", res.data);
-      setUsers(res.data);
+      const validUsers = res.data.filter(user => user.name && user.mobile);
+      const sortedUsers = validUsers.sort((a, b) => {
+        // Pending requests first
+        if (a.status === 'pending' && b.status !== 'pending') return -1;
+        if (b.status === 'pending' && a.status !== 'pending') return 1;
+        // Then approved by points desc
+        if (a.status === 'approved' && b.status === 'approved') return b.points - a.points;
+        if (a.status === 'approved') return -1;
+        if (b.status === 'approved') return 1;
+        return 0;
+      });
+      setUsers(sortedUsers.filter(user => user.role === 'user'));
     } catch (err) {
       console.error('Fetch users error:', err);
     } finally {
       setLoading(false);
     }
   }, [selectedAdminForUser]);
-
   useEffect(() => {
     fetchUsers();
   }, [selectedAdminForUser]);
-
   const handleStatusUpdate = useCallback(
     async (userId, status) => {
       if (status === 'approved' && !selectedAdminForUser) {
@@ -349,7 +298,6 @@ const fetchNotifications = useCallback(async () => {
     },
     [fetchData, handleUnauthorized, selectedAdminForUser]
   );
-
   const handleStatusUpdateAdmin = useCallback(
     async (adminId, status) => {
       setLoading(true);
@@ -380,7 +328,6 @@ const fetchNotifications = useCallback(async () => {
     },
     [fetchData, handleUnauthorized]
   );
-
   const handleDeleteAdmin = useCallback(
     adminId => {
       showConfirmDialog('Confirm Delete', 'Delete this admin?', async () => {
@@ -404,7 +351,6 @@ const fetchNotifications = useCallback(async () => {
     },
     [fetchData, handleUnauthorized, showConfirmDialog]
   );
-
   const handleSetAdminUserLimit = useCallback(
     async (adminId, limit) => {
       setLoading(true);
@@ -430,7 +376,19 @@ const fetchNotifications = useCallback(async () => {
     },
     [fetchData, handleUnauthorized]
   );
-
+  // New handler for Set Limit Modal confirm
+  const confirmSetLimit = useCallback(() => {
+    if (!userLimitInput || isNaN(userLimitInput) || parseInt(userLimitInput) < 0) {
+      Toast.show({ type: 'error', text1: 'Invalid Limit', text2: 'Please enter a valid number.' });
+      return;
+    }
+    if (selectedAdminForLimit) {
+      handleSetAdminUserLimit(selectedAdminForLimit, userLimitInput);
+    }
+    setShowLimitModal(false);
+    setUserLimitInput('');
+    setSelectedAdminForLimit(null);
+  }, [userLimitInput, selectedAdminForLimit, handleSetAdminUserLimit]);
   const fetchUserBarcodes = useCallback(
     async userId => {
       setLoading(true);
@@ -456,7 +414,6 @@ const fetchNotifications = useCallback(async () => {
     },
     [handleUnauthorized]
   );
-
   const handleDeleteUser = useCallback(
     userId => {
       showConfirmDialog('Confirm Delete', 'Delete this user?', async () => {
@@ -480,7 +437,6 @@ const fetchNotifications = useCallback(async () => {
     },
     [fetchData, handleUnauthorized, showConfirmDialog]
   );
-
   const handleDeleteBarcode = useCallback(
     barcodeId => {
       showConfirmDialog('Confirm Delete', 'Delete this barcode?', async () => {
@@ -507,7 +463,6 @@ const fetchNotifications = useCallback(async () => {
     },
     [fetchData, fetchUserBarcodes, handleUnauthorized, selectedAdminId, showConfirmDialog]
   );
-
   const handleResetPoints = useCallback(
     userId => {
       showConfirmDialog('Confirm Reset Points', 'Reset user points?', async () => {
@@ -535,7 +490,6 @@ const fetchNotifications = useCallback(async () => {
     },
     [fetchData, handleUnauthorized, showConfirmDialog]
   );
-
   const handleLogout = useCallback(async () => {
     try {
       await AsyncStorage.clear();
@@ -545,7 +499,6 @@ const fetchNotifications = useCallback(async () => {
       Toast.show({ type: 'error', text1: 'Logout Failed', text2: error.message });
     }
   }, [navigation]);
-
   const generateBarcodePDF = useCallback(async () => {
     setPdfLoading(true);
     try {
@@ -612,7 +565,6 @@ const fetchNotifications = useCallback(async () => {
     pointsPerScan,
     adminRanges,
   ]);
-
   // useMemo Hooks
   const filteredAdmins = useMemo(
     () =>
@@ -624,13 +576,11 @@ const fetchNotifications = useCallback(async () => {
       ),
     [admins, searchAdmin]
   );
-
   const filteredUsers = useMemo(() => {
     // Agar admin select nahi → saare users
     let tempUsers = selectedAdminForUser
       ? users.filter(user => user.adminId === selectedAdminForUser)
       : [...users]; // selectedAdminForUser empty → saare users
-
     // Search filter
     return tempUsers.filter(
       user =>
@@ -638,7 +588,6 @@ const fetchNotifications = useCallback(async () => {
         (user.mobile || '').toLowerCase().includes(searchUser.toLowerCase())
     );
   }, [users, searchUser, selectedAdminForUser]);
-
   const filteredBarcodes = useMemo(
     () =>
       barcodes.filter(barcode =>
@@ -646,12 +595,10 @@ const fetchNotifications = useCallback(async () => {
       ),
     [barcodes, searchBarcode]
   );
-
   const getItemLayout = useCallback(
     (data, index) => ({ length: 250, offset: 250 * index, index }),
     []
   );
-
   // useEffect and Other Hooks
   React.useLayoutEffect(() => {
     navigation.setOptions({
@@ -679,7 +626,6 @@ const fetchNotifications = useCallback(async () => {
     const interval = setInterval(refreshToken, 50 * 60 * 1000);
     return () => clearInterval(interval);
   }, [navigation]);
-
   // Load superadmin from storage + initial data
   useEffect(() => {
     const fetchSuperAdmin = async () => {
@@ -694,7 +640,11 @@ const fetchNotifications = useCallback(async () => {
     fetchData();
     fetchNotifications();
   }, [fetchData, fetchNotifications]);
-
+  // Clear password on tab change
+  useEffect(() => {
+    setShowPassword(null);
+    setPasswordAdminId(null);
+  }, [currentTab]);
   // ---------------- Socket.IO (real-time sync for superadmin) ----------------
   useEffect(() => {
     let socket = null;
@@ -716,7 +666,6 @@ const fetchNotifications = useCallback(async () => {
         socket.on('disconnect', () => {
           console.log('Socket disconnected, will attempt reconnect…');
         });
-
         const stored = await AsyncStorage.getItem('user');
         const parsed = stored ? JSON.parse(stored) : null;
         if (parsed?._id || parsed?.id) {
@@ -725,47 +674,31 @@ const fetchNotifications = useCallback(async () => {
             userId: (parsed._id || parsed.id).toString(),
           });
         }
-
         socket.on('barcode:updated', data => {
           setBarcodes(prev => prev.map(b => (b.id === data.id ? { ...b, ...data } : b)));
           Toast.show({ type: 'info', text1: 'Barcode updated' });
           // CHANGE: Increment unread count
         });
-
         socket.on('barcode:deleted', data => {
           setBarcodes(prev => prev.filter(b => b.id !== data.id));
           Toast.show({ type: 'warning', text1: 'Barcode deleted' });
           // CHANGE: Increment unread count
         });
-
         socket.on('reward:updated', () => {
-          fetchRewards();
+          fetchData();
           Toast.show({ type: 'info', text1: 'Reward updated' });
           // CHANGE: Increment unread count
         });
-
         socket.on('user:updated', data => {
           setUsers(prev => prev.map(u => (u.id === data.id ? { ...u, ...data } : u)));
           Toast.show({ type: 'info', text1: 'User updated' });
           // CHANGE: Increment unread count
         });
-
         socket.on('user:deleted', data => {
           setUsers(prev => prev.filter(u => u.id !== data.id));
           Toast.show({ type: 'warning', text1: 'User deleted' });
           // CHANGE: Increment unread count
         });
-
-        socket.on('history:updated', payload => {
-          try {
-            fetchSuperHistory();
-            Toast.show({ type: 'info', text1: 'New history event' });
-            // CHANGE: Increment unread count
-          } catch (err) {
-            console.warn('super history listener error', err);
-          }
-        });
-
         socket.on('notification:updated', data => {
           setNotifications(prev =>
             [data, ...prev.filter(n => n._id !== data._id)].sort(
@@ -774,13 +707,11 @@ const fetchNotifications = useCallback(async () => {
           );
           Toast.show({ type: 'info', text1: 'New notification received' });
         });
-
         socket.on('redemption:updated', () => {
           fetchData();
           Toast.show({ type: 'info', text1: 'Redemption updated' });
           // CHANGE: Increment unread count
         });
-
         socket.on('metrics:updated', () => {
           fetchData();
           fetchAdminRanges();
@@ -788,7 +719,6 @@ const fetchNotifications = useCallback(async () => {
           // CHANGE: Increment unread count
           // setUnreadSuperAdmin((prev) => prev + 1);
         });
-
         socket.on('barcodeRange:created', data => {
           setNotifications(prev => [
             {
@@ -818,12 +748,32 @@ const fetchNotifications = useCallback(async () => {
             visibilityTime: 5000,
           });
         });
+        // NEW: Listen for new user registrations needing approval
+        socket.on('user:needsApproval', newUser => {
+          fetchData(); // Refreshes the user list
+          fetchNotifications(); // Refreshes the notification list
+          setNotifications(prev => [
+            {
+              _id: `user-approval-${Date.now()}`,
+              message: `New User: ${newUser.name} requires approval.`,
+              createdAt: new Date(),
+              read: false,
+            },
+            ...prev,
+          ]);
+          setUnreadSuperAdmin(prev => prev + 1);
+          Toast.show({
+            type: 'info',
+            text1: 'New User Registered',
+            text2: `${newUser.name} requires approval.`,
+            visibilityTime: 5000,
+          });
+        });
       } catch (err) {
         console.warn('Socket error (superadmin):', err);
       }
     };
     setupSocket();
-
     return () => {
       try {
         if (socket) socket.disconnect();
@@ -831,7 +781,6 @@ const fetchNotifications = useCallback(async () => {
     };
   }, [fetchData, fetchAdminRanges]);
   // ---------------- end socket ----------------
-
   // Background refresh
   useEffect(() => {
     if (currentTab === 'barcode') {
@@ -843,17 +792,14 @@ const fetchNotifications = useCallback(async () => {
         fetchAdminRanges({ silent: true });
       }
     }, 30000);
-
     return () => clearInterval(refreshInterval);
   }, [currentTab, fetchData, fetchAdminRanges]);
-
   // Reset selectedRangeId when switching admin
   useEffect(() => {
     if (useAdminRanges) {
       setSelectedRangeId('');
     }
   }, [selectedAdminForUser, useAdminRanges]);
-
   // Handle back button (Android)
   useFocusEffect(
     useCallback(() => {
@@ -867,7 +813,6 @@ const fetchNotifications = useCallback(async () => {
       }
     }, [navigation])
   );
-
   useEffect(() => {
     try {
       const unreadCount = Array.isArray(notifications)
@@ -879,11 +824,11 @@ const fetchNotifications = useCallback(async () => {
       setUnreadSuperAdmin(0); // Default to 0 in case of an error
     }
   }, [notifications]); // This hook runs every time the 'notifications' state updates
-
   const renderContent = () => {
+    let content;
     switch (currentTab) {
       case 'home':
-        return (
+        content = (
           <>
             <View style={styles.header}>
               <ThemeToggle style={styles.toggle} />
@@ -894,6 +839,7 @@ const fetchNotifications = useCallback(async () => {
                 buttonColor={colors.error}
                 textColor="#FFF"
                 labelStyle={styles.buttonLabel}
+                icon="logout"
               >
                 Logout
               </Button>
@@ -903,30 +849,119 @@ const fetchNotifications = useCallback(async () => {
                 Super Admin Home
               </Text>
             </View>
-            <Card style={[styles.card, { backgroundColor: isDarkMode ? '#333' : colors.surface }]}>
+            <Card
+              style={[
+                styles.welcomeCard,
+                { backgroundColor: isDarkMode ? '#4A5568' : colors.primaryContainer },
+              ]}
+            >
               <Card.Content>
-                <Text style={[styles.cardText, { color: isDarkMode ? '#FFD700' : colors.text }]}>
-                  Super Admin: {superAdmin?.name || 'Unknown'}
+                <View style={styles.welcomeRow}>
+                  <MaterialIcons
+                    name="verified-user"
+                    size={40}
+                    color={isDarkMode ? '#FFD700' : colors.primary}
+                  />
+                  <View style={styles.welcomeText}>
+                    <Text
+                      style={[
+                        styles.welcomeTitle,
+                        { color: isDarkMode ? '#FFF' : colors.onPrimaryContainer },
+                      ]}
+                    >
+                      Welcome, {superAdmin?.name || 'Super Admin'}!
+                    </Text>
+                    <Text
+                      style={[
+                        styles.welcomeSubtitle,
+                        { color: isDarkMode ? '#E2E8F0' : colors.onSurfaceVariant },
+                      ]}
+                    >
+                      Manage your dashboard with ease
+                    </Text>
+                  </View>
+                </View>
+              </Card.Content>
+            </Card>
+            <Card
+              style={[styles.statsCard, { backgroundColor: isDarkMode ? '#333' : colors.surface }]}
+            >
+              <Card.Content>
+                <Text style={[styles.statsTitle, { color: isDarkMode ? '#FFF' : colors.text }]}>
+                  Quick Stats
                 </Text>
-                <Text style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}>
-                  Admins: {admins.length}
-                </Text>
-                <Text style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}>
-                  Users: {users.length}
-                </Text>
-                <Text style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}>
-                  Barcodes: {barcodes.length}
-                </Text>
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <MaterialIcons
+                      name="supervisor-account"
+                      size={24}
+                      color={isDarkMode ? '#FFD700' : colors.primary}
+                    />
+                    <Text
+                      style={[styles.statNumber, { color: isDarkMode ? '#FFF' : colors.primary }]}
+                    >
+                      {admins.length}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.statLabel,
+                        { color: isDarkMode ? '#AAA' : colors.onSurfaceVariant },
+                      ]}
+                    >
+                      Admins
+                    </Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <MaterialIcons
+                      name="group"
+                      size={24}
+                      color={isDarkMode ? '#FFD700' : colors.primary}
+                    />
+                    <Text
+                      style={[styles.statNumber, { color: isDarkMode ? '#FFF' : colors.primary }]}
+                    >
+                      {users.length}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.statLabel,
+                        { color: isDarkMode ? '#AAA' : colors.onSurfaceVariant },
+                      ]}
+                    >
+                      Users
+                    </Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <MaterialIcons
+                      name="qr-code"
+                      size={24}
+                      color={isDarkMode ? '#FFD700' : colors.primary}
+                    />
+                    <Text
+                      style={[styles.statNumber, { color: isDarkMode ? '#FFF' : colors.primary }]}
+                    >
+                      {barcodes.length}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.statLabel,
+                        { color: isDarkMode ? '#AAA' : colors.onSurfaceVariant },
+                      ]}
+                    >
+                      Barcodes
+                    </Text>
+                  </View>
+                </View>
               </Card.Content>
             </Card>
           </>
         );
-
+        break;
       case 'admins':
-        return (
+        content = (
           <>
             <Text style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}>
-              Admins
+              Admins (Pending Requests on Top)
             </Text>
             <View
               style={[styles.searchBar, { backgroundColor: isDarkMode ? '#555' : colors.surface }]}
@@ -938,52 +973,110 @@ const fetchNotifications = useCallback(async () => {
                 style={[styles.searchInput, { color: isDarkMode ? '#FFF' : colors.text }]}
                 placeholderTextColor={isDarkMode ? '#AAA' : '#666'}
                 autoCapitalize="none"
+                left={
+                  <MaterialIcons
+                    name="search"
+                    size={20}
+                    color={isDarkMode ? '#AAA' : '#666'}
+                    style={styles.inputIcon}
+                  />
+                }
               />
             </View>
             <FlatList
               data={filteredAdmins}
               keyExtractor={item => item.id}
+              contentContainerStyle={{ paddingBottom: 120 }}
               renderItem={({ item }) => (
                 <Card
                   style={[styles.card, { backgroundColor: isDarkMode ? '#333' : colors.surface }]}
                 >
                   <Card.Content>
                     {selectedAdminId !== item.id ? (
-                      <>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFD700' : colors.text }]}
-                        >
-                          Name: {item.name}
-                        </Text>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Mobile: {item.mobile}
-                        </Text>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Unique Code: {item.uniqueCode}
-                        </Text>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Status: {item.status === 'approved' ? 'Active' : item.status}
-                        </Text>
-                        {passwordAdminId === item.id && showPassword && (
-                          <View style={styles.passwordContainer}>
+                      <View style={styles.listItemRow}>
+                        <View style={styles.infoHeaderRow}>
+                          <MaterialIcons
+                            name="person-outline"
+                            size={24}
+                            color={isDarkMode ? '#FFD700' : colors.primary}
+                          />
+                          <View style={styles.infoTextHeader}>
                             <Text
-                              style={[styles.cardText, { color: colors.error, fontWeight: 'bold' }]}
+                              style={[
+                                styles.rowTextBold,
+                                { color: isDarkMode ? '#FFD700' : colors.primary },
+                              ]}
                             >
-                              Warning: Passwords are sensitive!
+                              {item.name}
                             </Text>
                             <Text
                               style={[
-                                styles.cardText,
+                                styles.statusBadge,
+                                {
+                                  backgroundColor:
+                                    item.status === 'approved'
+                                      ? colors.primary + '20'
+                                      : item.status === 'pending'
+                                      ? '#FFD70020'
+                                      : colors.error + '20',
+                                  color:
+                                    item.status === 'approved'
+                                      ? colors.primary
+                                      : item.status === 'pending'
+                                      ? '#FFD700'
+                                      : colors.error,
+                                },
+                              ]}
+                            >
+                              {item.status === 'approved'
+                                ? 'Active'
+                                : item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                            </Text>
+                          </View>
+                        </View>
+                        <View>
+                          <View style={styles.detailItem}>
+                            <MaterialIcons
+                              name="phone"
+                              size={16}
+                              color={isDarkMode ? '#AAA' : '#666'}
+                            />
+                            <Text
+                              style={[
+                                styles.detailText,
                                 { color: isDarkMode ? '#FFF' : colors.text },
                               ]}
                             >
-                              Password: {showPassword}
+                              {item.mobile}
+                            </Text>
+                          </View>
+                          <View style={styles.detailItem}>
+                            <MaterialIcons
+                              name="code"
+                              size={16}
+                              color={isDarkMode ? '#AAA' : '#666'}
+                            />
+                            <Text
+                              style={[
+                                styles.detailText,
+                                { color: isDarkMode ? '#FFF' : colors.text },
+                              ]}
+                            >
+                              {item.uniqueCode}
+                            </Text>
+                          </View>
+                        </View>
+                        {passwordAdminId === item.id && showPassword && (
+                          <View
+                            style={[
+                              styles.passwordContainer,
+                              { backgroundColor: isDarkMode ? '#4A4A4A' : '#fff3cd' },
+                            ]}
+                          >
+                            <Text
+                              style={[styles.cardText, { color: colors.error, fontWeight: 'bold' }]}
+                            >
+                              ⚠️ Password: {showPassword}
                             </Text>
                             <Button
                               mode="text"
@@ -992,6 +1085,7 @@ const fetchNotifications = useCallback(async () => {
                                 setPasswordAdminId(null);
                               }}
                               textColor={isDarkMode ? '#FF5555' : colors.error}
+                              compact
                             >
                               Hide
                             </Button>
@@ -1007,6 +1101,7 @@ const fetchNotifications = useCallback(async () => {
                                 buttonColor={colors.primary}
                                 textColor={isDarkMode ? '#FFF' : '#212121'}
                                 labelStyle={styles.buttonLabel}
+                                icon="check"
                               >
                                 Approve
                               </Button>
@@ -1017,6 +1112,7 @@ const fetchNotifications = useCallback(async () => {
                                 buttonColor={colors.error}
                                 textColor="#FFF"
                                 labelStyle={styles.buttonLabel}
+                                icon="close"
                               >
                                 Disapprove
                               </Button>
@@ -1026,6 +1122,7 @@ const fetchNotifications = useCallback(async () => {
                                 style={styles.actionButton}
                                 textColor={isDarkMode ? '#FF5555' : colors.error}
                                 labelStyle={styles.buttonLabel}
+                                icon="delete"
                               >
                                 Delete
                               </Button>
@@ -1037,6 +1134,7 @@ const fetchNotifications = useCallback(async () => {
                               style={styles.actionButton}
                               textColor={isDarkMode ? '#FF5555' : colors.error}
                               labelStyle={styles.buttonLabel}
+                              icon="delete"
                             >
                               Delete
                             </Button>
@@ -1063,25 +1161,21 @@ const fetchNotifications = useCallback(async () => {
                                 style={styles.actionButton}
                                 textColor={isDarkMode ? '#FF5555' : colors.error}
                                 labelStyle={styles.buttonLabel}
+                                icon="delete"
                               >
                                 Delete
                               </Button>
                               <Button
                                 mode="outlined"
                                 onPress={() => {
-                                  const limit = isWeb
-                                    ? prompt('Enter user limit:')
-                                    : Alert.prompt(
-                                        'Set User Limit',
-                                        'Enter user limit:',
-                                        text => text
-                                      );
-                                  if (limit && !isNaN(limit))
-                                    handleSetAdminUserLimit(item.id, limit);
+                                  setSelectedAdminForLimit(item.id);
+                                  setUserLimitInput('');
+                                  setShowLimitModal(true);
                                 }}
                                 style={styles.actionButton}
                                 textColor={isDarkMode ? '#FFD700' : colors.accent}
                                 labelStyle={styles.buttonLabel}
+                                icon="tune"
                               >
                                 Set Limit
                               </Button>
@@ -1097,14 +1191,21 @@ const fetchNotifications = useCallback(async () => {
                             </>
                           )}
                         </View>
-                      </>
+                      </View>
                     ) : (
                       <>
-                        <Text
-                          style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Barcodes of {item.name}
-                        </Text>
+                        <View style={styles.barcodeHeader}>
+                          <MaterialIcons
+                            name="qr-code"
+                            size={28}
+                            color={isDarkMode ? '#FFD700' : colors.primary}
+                          />
+                          <Text
+                            style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}
+                          >
+                            Barcodes of {item.name}
+                          </Text>
+                        </View>
                         <Text
                           style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
                         >
@@ -1113,37 +1214,54 @@ const fetchNotifications = useCallback(async () => {
                         <FlatList
                           data={userBarcodes}
                           keyExtractor={barcode => barcode._id}
+                          contentContainerStyle={{ paddingBottom: 20 }}
                           renderItem={({ item: barcode }) => (
                             <View style={styles.barcodeItem}>
+                              <View style={styles.barcodeText}>
+                                <MaterialIcons name="barcode" size={20} color={colors.primary} />
+                                <Text
+                                  style={[
+                                    styles.cardText,
+                                    { color: isDarkMode ? '#FFF' : colors.text },
+                                  ]}
+                                >
+                                  {barcode.value}
+                                </Text>
+                              </View>
                               <Text
-                                style={[
-                                  styles.cardText,
-                                  { color: isDarkMode ? '#FFF' : colors.text, flex: 1 },
-                                ]}
+                                style={[styles.smallText, { color: isDarkMode ? '#AAA' : '#666' }]}
                               >
-                                {barcode.value} - {new Date(barcode.createdAt).toLocaleString()} -
-                                Points: {barcode.pointsAwarded}
+                                {new Date(barcode.createdAt).toLocaleString()} | Points:{' '}
+                                {barcode.pointsAwarded}
                               </Text>
                               <Button
                                 mode="outlined"
                                 onPress={() => handleDeleteBarcode(barcode._id)}
-                                style={[styles.actionButton, { minWidth: 80 }]}
+                                style={[styles.actionButtonSmall, { minWidth: 80 }]}
                                 textColor={isDarkMode ? '#FF5555' : colors.error}
                                 labelStyle={styles.buttonLabel}
+                                icon="delete"
                               >
                                 Delete
                               </Button>
                             </View>
                           )}
                           ListEmptyComponent={() => (
-                            <Text
-                              style={[
-                                styles.emptyText,
-                                { color: isDarkMode ? '#FFF' : colors.text },
-                              ]}
-                            >
-                              No barcodes found.
-                            </Text>
+                            <View style={styles.emptyContainer}>
+                              <MaterialIcons
+                                name="qr-code-scanner"
+                                size={48}
+                                color={isDarkMode ? '#AAA' : '#999'}
+                              />
+                              <Text
+                                style={[
+                                  styles.emptyText,
+                                  { color: isDarkMode ? '#FFF' : colors.text },
+                                ]}
+                              >
+                                No barcodes found.
+                              </Text>
+                            </View>
                           )}
                           initialNumToRender={10}
                           maxToRenderPerBatch={10}
@@ -1157,6 +1275,7 @@ const fetchNotifications = useCallback(async () => {
                           buttonColor={colors.primary}
                           textColor={isDarkMode ? '#FFF' : '#212121'}
                           labelStyle={styles.buttonLabel}
+                          icon="arrow-back"
                         >
                           Back
                         </Button>
@@ -1166,21 +1285,27 @@ const fetchNotifications = useCallback(async () => {
                 </Card>
               )}
               ListEmptyComponent={() => (
-                <Text style={[styles.emptyText, { color: isDarkMode ? '#FFF' : colors.text }]}>
-                  No admins found.
-                </Text>
+                <View style={styles.emptyContainer}>
+                  <MaterialIcons
+                    name="supervisor-account"
+                    size={48}
+                    color={isDarkMode ? '#AAA' : '#999'}
+                  />
+                  <Text style={[styles.emptyText, { color: isDarkMode ? '#FFF' : colors.text }]}>
+                    No admins found.
+                  </Text>
+                </View>
               )}
               initialNumToRender={10}
               maxToRenderPerBatch={10}
               windowSize={5}
               getItemLayout={getItemLayout}
-              contentContainerStyle={{ paddingBottom: 100 }}
             />
           </>
         );
-
+        break;
       case 'users':
-        return (
+        content = (
           <>
             <Text style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}>
               Users
@@ -1196,14 +1321,14 @@ const fetchNotifications = useCallback(async () => {
                 }}
                 style={[styles.picker, { color: isDarkMode ? '#FFF' : colors.text }]}
                 dropdownIconColor={isDarkMode ? '#FFF' : colors.text}
+                itemStyle={{ backgroundColor: isDarkMode ? '#333' : colors.surface }}
               >
-                <Picker.Item label="Select Admin" value="" />
+                <Picker.Item label="Select Admin (Filter Users)" value="" />
                 {admins.map(admin => (
                   <Picker.Item key={admin.id} label={admin.name} value={admin.id} />
                 ))}
               </Picker>
             </View>
-
             <View
               style={[styles.searchBar, { backgroundColor: isDarkMode ? '#555' : colors.surface }]}
             >
@@ -1214,44 +1339,106 @@ const fetchNotifications = useCallback(async () => {
                 style={[styles.searchInput, { color: isDarkMode ? '#FFF' : colors.text }]}
                 placeholderTextColor={isDarkMode ? '#AAA' : '#666'}
                 autoCapitalize="none"
+                left={
+                  <MaterialIcons
+                    name="search"
+                    size={20}
+                    color={isDarkMode ? '#AAA' : '#666'}
+                    style={styles.inputIcon}
+                  />
+                }
               />
             </View>
             <FlatList
               data={filteredUsers}
               keyExtractor={item => item._id}
+              contentContainerStyle={{ paddingBottom: 120 }}
               renderItem={({ item }) => (
                 <Card
                   style={[styles.card, { backgroundColor: isDarkMode ? '#333' : colors.surface }]}
                 >
                   <Card.Content>
                     {selectedAdminId !== item._id ? (
-                      <>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFD700' : colors.text }]}
-                        >
-                          Name: {item.name}
-                        </Text>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Mobile: {item.mobile}
-                        </Text>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Status: {item.status === 'approved' ? 'Active' : item.status}
-                        </Text>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Points: {item.points}
-                        </Text>
-                        <Text
-                          style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Assigned Admin:{' '}
-                          {admins.find(admin => admin.id === item.adminId)?.name || 'None'}
-                        </Text>
+                      <View style={styles.listItemRow}>
+                        <View style={styles.infoHeaderRow}>
+                          <MaterialIcons
+                            name="person"
+                            size={24}
+                            color={item.status === 'approved' ? colors.primary : colors.error}
+                          />
+                          <View style={styles.infoTextHeader}>
+                            <Text
+                              style={[
+                                styles.rowTextBold,
+                                { color: isDarkMode ? '#FFD700' : colors.primary },
+                              ]}
+                            >
+                              {item.name}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.statusBadge,
+                                {
+                                  backgroundColor:
+                                    item.status === 'approved'
+                                      ? colors.primary + '20'
+                                      : item.status === 'pending'
+                                      ? '#FFD70020'
+                                      : colors.error + '20',
+                                  color:
+                                    item.status === 'approved'
+                                      ? colors.primary
+                                      : item.status === 'pending'
+                                      ? '#FFD700'
+                                      : colors.error,
+                                },
+                              ]}
+                            >
+                              {item.status === 'approved'
+                                ? 'Active'
+                                : item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.detailText}>
+                          <View style={styles.detailItem}>
+                            <MaterialIcons name="call" size={16} color="#000000ff" />
+                            <Text
+                              style={[
+                                styles.detailText,
+                                { color: isDarkMode ? '#FFF' : colors.text },
+                              ]}
+                            >
+                              {item.mobile}
+                            </Text>
+                          </View>
+                          <View style={styles.detailItem}>
+                            <MaterialIcons name="star" size={16} color="#FFD700" />
+                            <Text
+                              style={[
+                                styles.detailText,
+                                { color: isDarkMode ? '#FFF' : colors.text },
+                              ]}
+                            >
+                              {item.points} pts
+                            </Text>
+                          </View>
+                          <View style={styles.detailItem}>
+                            <MaterialIcons
+                              name="supervisor-account"
+                              size={16}
+                              color={isDarkMode ? '#AAA' : '#666'}
+                            />
+                            <Text
+                              style={[
+                                styles.detailText,
+                                { color: isDarkMode ? '#FFF' : colors.text },
+                              ]}
+                            >
+                              {admins.find(admin => admin.id === item.adminId)?.name || 'None'}
+                            </Text>
+                          </View>
+                        </View>
                         <View style={styles.buttonRow}>
                           {item.status === 'pending' ? (
                             <>
@@ -1263,6 +1450,7 @@ const fetchNotifications = useCallback(async () => {
                                 textColor={isDarkMode ? '#FFF' : '#212121'}
                                 labelStyle={styles.buttonLabel}
                                 disabled={!selectedAdminForUser}
+                                icon="check"
                               >
                                 Approve
                               </Button>
@@ -1273,6 +1461,7 @@ const fetchNotifications = useCallback(async () => {
                                 buttonColor={colors.error}
                                 textColor="#FFF"
                                 labelStyle={styles.buttonLabel}
+                                icon="close"
                               >
                                 Disapprove
                               </Button>
@@ -1282,6 +1471,7 @@ const fetchNotifications = useCallback(async () => {
                                 style={styles.actionButton}
                                 textColor={isDarkMode ? '#FF5555' : colors.error}
                                 labelStyle={styles.buttonLabel}
+                                icon="delete"
                               >
                                 Delete
                               </Button>
@@ -1293,6 +1483,7 @@ const fetchNotifications = useCallback(async () => {
                               style={styles.actionButton}
                               textColor={isDarkMode ? '#FF5555' : colors.error}
                               labelStyle={styles.buttonLabel}
+                              icon="delete"
                             >
                               Delete
                             </Button>
@@ -1313,6 +1504,7 @@ const fetchNotifications = useCallback(async () => {
                                 style={styles.actionButton}
                                 textColor={isDarkMode ? '#FF5555' : colors.error}
                                 labelStyle={styles.buttonLabel}
+                                icon="delete"
                               >
                                 Delete
                               </Button>
@@ -1322,20 +1514,28 @@ const fetchNotifications = useCallback(async () => {
                                 style={styles.actionButton}
                                 textColor={isDarkMode ? '#FFD700' : colors.accent}
                                 labelStyle={styles.buttonLabel}
+                                icon="refresh"
                               >
                                 Reset Points
                               </Button>
                             </>
                           )}
                         </View>
-                      </>
+                      </View>
                     ) : (
                       <>
-                        <Text
-                          style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        >
-                          Barcodes of {item.name}
-                        </Text>
+                        <View style={styles.barcodeHeader}>
+                          <MaterialIcons
+                            name="qr-code"
+                            size={28}
+                            color={isDarkMode ? '#FFD700' : colors.primary}
+                          />
+                          <Text
+                            style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}
+                          >
+                            Barcodes of {item.name}
+                          </Text>
+                        </View>
                         <Text
                           style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}
                         >
@@ -1344,40 +1544,56 @@ const fetchNotifications = useCallback(async () => {
                         <FlatList
                           data={userBarcodes}
                           keyExtractor={barcode => barcode._id}
+                          contentContainerStyle={{ paddingBottom: 20 }}
                           renderItem={({ item: barcode }) => (
                             <View style={styles.barcodeItem}>
+                              <View style={styles.barcodeText}>
+                                <MaterialIcons name="barcode" size={20} color={colors.primary} />
+                                <Text
+                                  style={[
+                                    styles.cardText,
+                                    { color: isDarkMode ? '#FFF' : colors.text },
+                                  ]}
+                                >
+                                  {barcode.value}
+                                </Text>
+                              </View>
                               <Text
-                                style={[
-                                  styles.cardText,
-                                  { color: isDarkMode ? '#FFF' : colors.text, flex: 1 },
-                                ]}
+                                style={[styles.smallText, { color: isDarkMode ? '#AAA' : '#666' }]}
                               >
-                                {barcode.value} -{' '}
                                 {barcode.createdAt
                                   ? new Date(barcode.createdAt).toLocaleString()
                                   : 'N/A'}{' '}
-                                - Points: {barcode.pointsAwarded ?? 0}
+                                | Points: {barcode.pointsAwarded ?? 0}
                               </Text>
                               <Button
                                 mode="outlined"
                                 onPress={() => handleDeleteBarcode(barcode._id)}
-                                style={[styles.actionButton, { minWidth: 80 }]}
+                                style={[styles.actionButtonSmall, { minWidth: 80 }]}
                                 textColor={isDarkMode ? '#FF5555' : colors.error}
                                 labelStyle={styles.buttonLabel}
+                                icon="delete"
                               >
                                 Delete
                               </Button>
                             </View>
                           )}
                           ListEmptyComponent={() => (
-                            <Text
-                              style={[
-                                styles.emptyText,
-                                { color: isDarkMode ? '#FFF' : colors.text },
-                              ]}
-                            >
-                              No barcodes found.
-                            </Text>
+                            <View style={styles.emptyContainer}>
+                              <MaterialIcons
+                                name="qr-code-scanner"
+                                size={48}
+                                color={isDarkMode ? '#AAA' : '#999'}
+                              />
+                              <Text
+                                style={[
+                                  styles.emptyText,
+                                  { color: isDarkMode ? '#FFF' : colors.text },
+                                ]}
+                              >
+                                No barcodes found.
+                              </Text>
+                            </View>
                           )}
                           initialNumToRender={10}
                           maxToRenderPerBatch={10}
@@ -1391,6 +1607,7 @@ const fetchNotifications = useCallback(async () => {
                           buttonColor={colors.primary}
                           textColor={isDarkMode ? '#FFF' : '#212121'}
                           labelStyle={styles.buttonLabel}
+                          icon="arrow-back"
                         >
                           Back
                         </Button>
@@ -1400,131 +1617,50 @@ const fetchNotifications = useCallback(async () => {
                 </Card>
               )}
               ListEmptyComponent={() => (
-                <Text style={[styles.emptyText, { color: isDarkMode ? '#FFF' : colors.text }]}>
-                  No users found.
-                </Text>
+                <View style={styles.emptyContainer}>
+                  <MaterialIcons name="group" size={48} color={isDarkMode ? '#AAA' : '#999'} />
+                  <Text style={[styles.emptyText, { color: isDarkMode ? '#FFF' : colors.text }]}>
+                    No users found.
+                  </Text>
+                </View>
               )}
               initialNumToRender={10}
               maxToRenderPerBatch={10}
               windowSize={5}
               getItemLayout={getItemLayout}
-              contentContainerStyle={{ paddingBottom: 150 }}
             />
           </>
         );
-
-      case 'history':
-        return (
-          <>
-            {/* Title */}
-            <Text style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}>
-              Notifications & History
-            </Text>
-
-            {/* Combined FlatList */}
-            <FlatList
-              data={[...notifications, ...superHistory]} // Combine arrays
-              keyExtractor={(item, idx) => item._id || `${item.message || item.action}-${idx}`}
-              renderItem={({ item }) =>
-                item.message ? (
-                  <TouchableOpacity
-                    onPress={async () => {
-
-                      // 1️⃣ Mark notification as read
-                      try {
-                        const token = await AsyncStorage.getItem('token');
-
-                        if (!token) {
-                          Toast.show({ type: 'error', text1: 'No auth token found' });
-                          return;
-                        }
-
-                        const res = await axios.put(
-                          `${BASE_URL}/notifications/${item._id}/read`,
-                          {}, // empty body
-                          { headers: { Authorization: `Bearer ${token}` } }
-                        );
-
-                        // Update local state
-                        setNotifications(prev =>
-                          prev.map(n => (n._id === item._id ? { ...n, read: true } : n))
-                        );
-                        setUnreadSuperAdmin(prev => Math.max(0, prev - 1));
-
-                        Toast.show({ type: 'success', text1: 'Notification marked as read' });
-
-                      } catch (err) {
-                        console.warn('Error marking notification as read:', err);
-                        Toast.show({ type: 'error', text1: 'Failed to mark notification as read' });
-                      }
-
-                      // 2️⃣ Navigate based on notification type
-                      try {
-                        if (item.type?.toLowerCase().includes("user")) {
-                          setCurrentTab("users");
-                         
-                        } else if (item.type?.toLowerCase().includes("admin")) {
-                          setCurrentTab("admins");
-                          
-                        } else {
-                          Toast.show({ type: 'info', text1: 'No navigation needed for this notification' });
-                          
-                        }
-                      } catch (navErr) {
-                        console.warn("Error during navigation:", navErr);
-                      }
-                    }}
-                  >
-                    <View style={[styles.historyItem, item.read ? styles.read : styles.unread]}>
-                      <Text style={[styles.cardText, { fontWeight: 'bold' }]}>NOTIFICATION</Text>
-                      <Text style={styles.smallText}>{item.message}</Text>
-                      <Text style={styles.smallText}>
-                        {new Date(item.createdAt).toLocaleString()}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.historyItem}>
-                    <Text style={[styles.cardText, { fontWeight: 'bold' }]}>
-                      {item.action.toUpperCase()}
-                    </Text>
-                    <Text style={styles.smallText}>
-                      {item.details ? JSON.stringify(item.details) : ''}
-                    </Text>
-                    <Text style={styles.smallText}>
-                      {new Date(item.createdAt).toLocaleString()}
-                    </Text>
-                  </View>
-                )
-              }
-              ListEmptyComponent={() =>
-                !loading ? (
-                  <Text style={[styles.cardText, { color: isDarkMode ? '#FFF' : colors.text }]}>
-                    No notifications or history available.
-                  </Text>
-                ) : null
-              }
-            />
-          </>
-        );
-
-
+        break;
       case 'barcode':
-        return (
-          <ScrollView>
+        content = (
+          <>
             <Text style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}>
               Barcode Generator
             </Text>
             <Card style={[styles.card, { backgroundColor: isDarkMode ? '#333' : colors.surface }]}>
               <Card.Title
-                title="Barcode Settings"
+                title="Settings"
+                subtitle={
+                  useAdminRanges
+                    ? 'Using admin-defined ranges for easy access'
+                    : 'Custom barcode generation'
+                }
                 titleStyle={[styles.cardTitle, { color: isDarkMode ? '#FFF' : colors.text }]}
+                subtitleStyle={{ color: isDarkMode ? '#AAA' : colors.onSurfaceVariant }}
               />
               <Card.Content>
                 <View style={styles.switchContainer}>
-                  <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
-                    Use Admin-Defined Ranges
-                  </Text>
+                  <View>
+                    <Text
+                      style={[styles.hintTextBold, { color: isDarkMode ? '#FFF' : colors.text }]}
+                    >
+                      Use Admin-Defined Ranges?
+                    </Text>
+                    <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
+                      Toggle to select pre-defined ranges from admins (easier & faster)
+                    </Text>
+                  </View>
                   <Switch
                     value={useAdminRanges}
                     onValueChange={value => {
@@ -1539,7 +1675,12 @@ const fetchNotifications = useCallback(async () => {
                   />
                 </View>
                 {useAdminRanges ? (
-                  <>
+                  <View style={styles.section}>
+                    <Text
+                      style={[styles.sectionTitle, { color: isDarkMode ? '#FFF' : colors.text }]}
+                    >
+                      1. Select Admin
+                    </Text>
                     <View
                       style={[
                         styles.pickerContainer,
@@ -1554,50 +1695,73 @@ const fetchNotifications = useCallback(async () => {
                         }}
                         style={[styles.picker, { color: isDarkMode ? '#FFF' : colors.text }]}
                         dropdownIconColor={isDarkMode ? '#FFF' : colors.text}
+                        itemStyle={{ backgroundColor: isDarkMode ? '#333' : colors.surface }}
                       >
-                        <Picker.Item label="Select Admin" value="" />
+                        <Picker.Item label="Choose an Admin" value="" />
                         {admins.map(admin => (
-                          <Picker.Item key={admin.id} label={admin.name} value={admin.id} />
+                          <Picker.Item
+                            key={admin.id}
+                            label={`Admin: ${admin.name}`}
+                            value={admin.id}
+                          />
                         ))}
                       </Picker>
                     </View>
-                    <View
-                      style={[
-                        styles.pickerContainer,
-                        { backgroundColor: isDarkMode ? '#444' : '#fff' },
-                      ]}
+                    {selectedAdminForUser ? (
+                      <>
+                        <Text
+                          style={[
+                            styles.sectionTitle,
+                            { color: isDarkMode ? '#FFF' : colors.text },
+                          ]}
+                        >
+                          2. Select Range
+                        </Text>
+                        <View
+                          style={[
+                            styles.pickerContainer,
+                            { backgroundColor: isDarkMode ? '#444' : '#fff' },
+                          ]}
+                        >
+                          <Picker
+                            selectedValue={selectedRangeId}
+                            onValueChange={itemValue => setSelectedRangeId(itemValue)}
+                            style={[styles.picker, { color: isDarkMode ? '#FFF' : colors.text }]}
+                            dropdownIconColor={isDarkMode ? '#FFF' : colors.text}
+                            enabled={!!selectedAdminForUser}
+                            itemStyle={{ backgroundColor: isDarkMode ? '#333' : colors.surface }}
+                          >
+                            <Picker.Item label="Available Ranges" value="" />
+                            {adminRanges
+                              .filter(
+                                range =>
+                                  String(range.adminId?._id || range.adminId) ===
+                                  String(selectedAdminForUser)
+                              )
+                              .map(range => (
+                                <Picker.Item
+                                  key={range._id}
+                                  label={`${range.start} → ${range.end} | Points: ${
+                                    range.points
+                                  } | Qty: ${(() => {
+                                    const startNum = parseInt(range.start.replace(/\D/g, ''), 10);
+                                    const endNum = parseInt(range.end.replace(/\D/g, ''), 10);
+                                    return !isNaN(startNum) && !isNaN(endNum)
+                                      ? endNum - startNum + 1
+                                      : 0;
+                                  })()}`}
+                                  value={range._id}
+                                />
+                              ))}
+                          </Picker>
+                        </View>
+                      </>
+                    ) : null}
+                    <Text
+                      style={[styles.sectionTitle, { color: isDarkMode ? '#FFF' : colors.text }]}
                     >
-                      <Picker
-                        selectedValue={selectedRangeId}
-                        onValueChange={itemValue => setSelectedRangeId(itemValue)}
-                        style={[styles.picker, { color: isDarkMode ? '#FFF' : colors.text }]}
-                        dropdownIconColor={isDarkMode ? '#FFF' : colors.text}
-                        enabled={!!selectedAdminForUser} // Disable until admin is selected
-                      >
-                        <Picker.Item label="Select Range" value="" />
-                        {adminRanges
-                          .filter(
-                            range =>
-                              range.adminId?._id === selectedAdminForUser ||
-                              range.adminId === selectedAdminForUser
-                          )
-                          .map(range => (
-                            <Picker.Item
-                              key={range._id}
-                              label={`${range.start} - ${range.end} (P: ${
-                                range.points
-                              }, Qty: ${(() => {
-                                const startNum = parseInt(range.start.replace(/\D/g, ''), 10);
-                                const endNum = parseInt(range.end.replace(/\D/g, ''), 10);
-                                return !isNaN(startNum) && !isNaN(endNum)
-                                  ? endNum - startNum + 1
-                                  : 0;
-                              })()})`}
-                              value={range._id}
-                            />
-                          ))}
-                      </Picker>
-                    </View>
+                      3. Company Name (Optional)
+                    </Text>
                     <TextInput
                       label="Company Name"
                       value={barcodeSettings.companyName}
@@ -1609,11 +1773,16 @@ const fetchNotifications = useCallback(async () => {
                       mode="outlined"
                     />
                     <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
-                      Company name above barcode
+                      Appears above each barcode
                     </Text>
-                  </>
+                  </View>
                 ) : (
-                  <>
+                  <View style={styles.section}>
+                    <Text
+                      style={[styles.sectionTitle, { color: isDarkMode ? '#FFF' : colors.text }]}
+                    >
+                      Custom Settings
+                    </Text>
                     <TextInput
                       label="Prefix"
                       value={barcodeSettings.prefix}
@@ -1625,7 +1794,7 @@ const fetchNotifications = useCallback(async () => {
                       mode="outlined"
                     />
                     <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
-                      Barcode prefix (e.g., OPT)
+                      e.g., OPT
                     </Text>
                     <TextInput
                       label="Start Number"
@@ -1639,7 +1808,7 @@ const fetchNotifications = useCallback(async () => {
                       mode="outlined"
                     />
                     <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
-                      Starting barcode number
+                      Starting number
                     </Text>
                     <TextInput
                       label="Count"
@@ -1651,7 +1820,7 @@ const fetchNotifications = useCallback(async () => {
                       mode="outlined"
                     />
                     <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
-                      Number of barcodes
+                      How many barcodes?
                     </Text>
                     <TextInput
                       label="Digit Count"
@@ -1665,7 +1834,7 @@ const fetchNotifications = useCallback(async () => {
                       mode="outlined"
                     />
                     <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
-                      Number of digits for barcode number (e.g., 7 for OPT0000001)
+                      Digits in number (e.g., 7 for OPT0000001)
                     </Text>
                     <TextInput
                       label="Company Name"
@@ -1678,7 +1847,7 @@ const fetchNotifications = useCallback(async () => {
                       mode="outlined"
                     />
                     <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
-                      Company name above barcode
+                      Appears above each barcode
                     </Text>
                     <TextInput
                       label="Points per Scan"
@@ -1690,52 +1859,62 @@ const fetchNotifications = useCallback(async () => {
                       mode="outlined"
                     />
                     <Text style={[styles.hintText, { color: isDarkMode ? '#AAA' : '#666' }]}>
-                      Points awarded per barcode scan
+                      Points awarded per scan
                     </Text>
-                  </>
+                  </View>
                 )}
-                <View style={{ marginTop: 16 }}>
-                  <Text
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: isDarkMode ? '#FFF' : colors.text }]}>
+                    PDF Style
+                  </Text>
+                  <View
                     style={[
-                      styles.hintText,
-                      { color: isDarkMode ? '#AAA' : '#666', marginBottom: 4 },
+                      styles.pickerContainer,
+                      { backgroundColor: isDarkMode ? '#444' : '#fff' },
                     ]}
                   >
-                    PDF Mode
-                  </Text>
-                  <Picker
-                    selectedValue={barcodeSettings.mode}
-                    onValueChange={value => setBarcodeSettings({ ...barcodeSettings, mode: value })}
-                    style={{ color: isDarkMode ? '#FFF' : '#000' }}
-                    dropdownIconColor={colors.primary}
-                    mode="dropdown"
-                  >
-                    <Picker.Item label="With Outline" value="with-outline" />
-                    <Picker.Item label="Without Outline" value="without-outline" />
-                    <Picker.Item label="Only Outline" value="only-outline" />
-                  </Picker>
+                    <Picker
+                      selectedValue={barcodeSettings.mode}
+                      onValueChange={value =>
+                        setBarcodeSettings({ ...barcodeSettings, mode: value })
+                      }
+                      style={[styles.picker, { color: isDarkMode ? '#FFF' : colors.text }]}
+                      dropdownIconColor={isDarkMode ? '#FFF' : colors.text}
+                      itemStyle={{ backgroundColor: isDarkMode ? '#333' : colors.surface }}
+                    >
+                      <Picker.Item label="With Outline (Recommended)" value="with-outline" />
+                      <Picker.Item label="Without Outline" value="without-outline" />
+                      <Picker.Item label="Only Outline" value="only-outline" />
+                    </Picker>
+                  </View>
                 </View>
-                <Button
-                  mode="contained"
-                  onPress={generateBarcodePDF}
-                  style={styles.button}
-                  buttonColor={colors.primary}
-                  textColor="#FFF"
-                  labelStyle={styles.buttonLabel}
-                  disabled={useAdminRanges && (!selectedRangeId || !selectedAdminForUser)}
-                  loading={pdfLoading}
-                >
-                  {pdfLoading ? 'Generating PDF...' : 'Generate PDF'}
-                </Button>
+
+                <View style={{ marginTop: 2, width: '100%' }}>
+                  <Button
+                    mode="contained"
+                    onPress={generateBarcodePDF}
+                    style={styles.button}
+                    buttonColor={colors.primary}
+                    textColor="#FFF"
+                    labelStyle={styles.buttonLabel}
+                    loading={pdfLoading}
+                  >
+                    {pdfLoading ? 'Generating PDF...' : 'Generate PDF'}
+                  </Button>
+                </View>
               </Card.Content>
             </Card>
-          </ScrollView>
+          </>
         );
+        break;
       default:
-        return null;
+        content = null;
     }
+    if (currentTab === 'barcode') {
+      return <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>{content}</ScrollView>;
+    }
+    return content;
   };
-
   return (
     <View
       style={[styles.container, { backgroundColor: isDarkMode ? '#212121' : colors.background }]}
@@ -1745,8 +1924,9 @@ const fetchNotifications = useCallback(async () => {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       )}
-      <View style={styles.scrollContent}>{renderContent()}</View>
-
+      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+        {renderContent()}
+      </ScrollView>
       <View style={[styles.tabBar, { backgroundColor: isDarkMode ? '#333' : colors.surface }]}>
         <TouchableOpacity
           style={[styles.tabItem, currentTab === 'home' && styles.activeTab]}
@@ -1783,7 +1963,6 @@ const fetchNotifications = useCallback(async () => {
             Home
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.tabItem, currentTab === 'admins' && styles.activeTab]}
           onPress={() => setCurrentTab('admins')}
@@ -1819,7 +1998,6 @@ const fetchNotifications = useCallback(async () => {
             Admins
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.tabItem, currentTab === 'users' && styles.activeTab]}
           onPress={() => setCurrentTab('users')}
@@ -1855,7 +2033,6 @@ const fetchNotifications = useCallback(async () => {
             Users
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.tabItem, currentTab === 'barcode' && styles.activeTab]}
           onPress={() => setCurrentTab('barcode')}
@@ -1891,51 +2068,188 @@ const fetchNotifications = useCallback(async () => {
             Barcode
           </Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tabItem, currentTab === 'history' && styles.activeTab]}
-          onPress={() => setCurrentTab('history')}
-        >
-          <MaterialIcons
-            name="history"
-            size={24}
-            color={
-              currentTab === 'history'
-                ? isDarkMode
-                  ? '#FFF'
-                  : colors.primary
-                : isDarkMode
-                ? '#FFF'
-                : colors.text
-            }
-          />
-          <Text
-            style={[
-              styles.tabText,
-              {
-                color:
-                  currentTab === 'history'
-                    ? isDarkMode
-                      ? '#FFF'
-                      : colors.primary
-                    : isDarkMode
-                    ? '#FFF'
-                    : colors.text,
-              },
-            ]}
-          >
-            History
-          </Text>
-        </TouchableOpacity>
-        
       </View>
+      {/* Set Limit Modal */}
+      <Modal
+        visible={showLimitModal}
+        onRequestClose={() => {
+          setShowLimitModal(false);
+          setUserLimitInput('');
+          setSelectedAdminForLimit(null);
+        }}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View
+          style={[
+            styles.modalContainer,
+            { backgroundColor: isDarkMode ? '#212121' : colors.background },
+          ]}
+        >
+          <View style={styles.modalHeader}>
+            <Text style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}>
+              Set User Limit for {admins.find(a => a.id === selectedAdminForLimit)?.name}
+            </Text>
+            <Button
+              mode="text"
+              onPress={() => {
+                setShowLimitModal(false);
+                setUserLimitInput('');
+                setSelectedAdminForLimit(null);
+              }}
+              textColor={isDarkMode ? '#FFF' : colors.text}
+            >
+              Close
+            </Button>
+          </View>
+          <TextInput
+            label="User Limit"
+            value={userLimitInput}
+            onChangeText={setUserLimitInput}
+            keyboardType="numeric"
+            style={styles.input}
+            theme={{ colors: { text: colors.text, primary: colors.primary } }}
+            mode="outlined"
+            placeholder="e.g., 100"
+          />
+          <View style={styles.modalButtonRow}>
+            <Button
+              mode="outlined"
+              onPress={() => {
+                setShowLimitModal(false);
+                setUserLimitInput('');
+                setSelectedAdminForLimit(null);
+              }}
+              style={styles.modalButton}
+              textColor={isDarkMode ? '#FF5555' : colors.error}
+            >
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              onPress={confirmSetLimit}
+              style={styles.modalButton}
+              buttonColor={colors.primary}
+              textColor="#FFF"
+            >
+              Confirm
+            </Button>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={showNotificationsModal}
+        onRequestClose={() => setShowNotificationsModal(false)}
+        animationType="slide"
+      >
+        <View
+          style={[
+            styles.container,
+            { backgroundColor: isDarkMode ? '#212121' : colors.background },
+          ]}
+        >
+          <View style={styles.modalHeader}>
+            <Text style={[styles.subtitle, { color: isDarkMode ? '#FFF' : colors.text }]}>
+              Notifications ({unreadSuperAdmin} unread)
+            </Text>
+            <Button
+              mode="text"
+              onPress={() => setShowNotificationsModal(false)}
+              textColor={isDarkMode ? '#FFF' : colors.text}
+            >
+              Close
+            </Button>
+          </View>
+          <FlatList
+            data={notifications}
+            keyExtractor={item => item._id}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                onPress={async () => {
+                  if (!item.read) {
+                    try {
+                      const token = await AsyncStorage.getItem('token');
+                      await axios.put(
+                        `${BASE_URL}/notifications/${item._id}/read`,
+                        {},
+                        {
+                          headers: { Authorization: token },
+                        }
+                      );
+                      setNotifications(prev =>
+                        prev.map(n => (n._id === item._id ? { ...n, read: true } : n))
+                      );
+                      setUnreadSuperAdmin(prev => Math.max(0, prev - 1));
+                    } catch (err) {
+                      console.warn('Error marking as read:', err);
+                    }
+                  }
+                  // Parse message for redirect
+                  const lowerMessage = item.message.toLowerCase();
+                  let targetName = '';
+                  if (lowerMessage.includes('admin')) {
+                    // Extract name, e.g., "New Admin: John Doe requires approval"
+                    const match = item.message.match(/Admin[:\s]+([A-Za-z\s]+)/i);
+                    if (match) targetName = match[1].trim();
+                  } else if (lowerMessage.includes('user')) {
+                    // Extract name, e.g., "New User: Jane Smith registered"
+                    const match = item.message.match(/User[:\s]+([A-Za-z\s]+)/i);
+                    if (match) targetName = match[1].trim();
+                  }
+                  if (targetName) {
+                    setShowNotificationsModal(false);
+                    if (lowerMessage.includes('admin')) {
+                      setCurrentTab('admins');
+                      setSearchAdmin(targetName);
+                    } else {
+                      setCurrentTab('users');
+                      setSearchUser(targetName);
+                    }
+                    Toast.show({
+                      type: 'info',
+                      text1: `Redirecting to ${targetName}`,
+                    });
+                  } else {
+                    setShowNotificationsModal(false);
+                  }
+                }}
+              >
+                <View style={[styles.historyItem, item.read ? styles.read : styles.unread]}>
+                  <Text style={[styles.cardText, { fontWeight: 'bold' }]}>{item.message}</Text>
+                  <Text style={styles.smallText}>{new Date(item.createdAt).toLocaleString()}</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={() => (
+              <Text style={[styles.emptyText, { color: isDarkMode ? '#FFF' : colors.text }]}>
+                No notifications available.
+              </Text>
+            )}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 80 },
+  scrollContainer: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 120 },
+  modalContainer: { flex: 1, padding: 16 },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingTop: 50, // For status bar
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  modalButton: { flex: 1, marginHorizontal: 8 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1955,14 +2269,17 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   cardText: { fontSize: 16, marginBottom: 4, color: '#333' },
+  rowText: { fontSize: 14, marginBottom: 2 },
+  rowTextBold: { fontSize: 16, fontWeight: 'bold', marginBottom: 2 },
   cardTitle: { fontSize: 18, fontWeight: 'bold' },
   smallText: { fontSize: 12, color: '#555' },
-
+  hintText: { fontSize: 12, marginBottom: 12 },
+  hintTextBold: { fontSize: 14, fontWeight: '600', marginBottom: 4 },
   historyItem: {
     borderRadius: 12,
-    padding: 12,
+    padding: 16,
     marginVertical: 6,
-    marginHorizontal: 16,
+    marginHorizontal: 8,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1975,7 +2292,6 @@ const styles = StyleSheet.create({
   unread: {
     backgroundColor: '#d1e7ff',
   },
-
   searchBar: {
     marginBottom: 16,
     borderRadius: 25,
@@ -1984,6 +2300,7 @@ const styles = StyleSheet.create({
     borderColor: '#CCC',
   },
   searchInput: { height: 40, fontSize: 16, paddingHorizontal: 10, borderRadius: 20 },
+  inputIcon: { marginRight: 8 },
   pickerContainer: {
     width: '100%',
     borderRadius: 12,
@@ -1992,8 +2309,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   picker: { height: 48, width: '100%' },
-  button: { marginVertical: 8, borderRadius: 8, paddingVertical: 4 },
+  button: {
+    borderRadius: 8,
+    paddingVertical: 8,
+    elevation: 2,
+    shadowOpacity: 0.2,
+  },
   actionButton: { marginHorizontal: 4, marginVertical: 4, borderRadius: 8, minWidth: 80 },
+  actionButtonSmall: { marginHorizontal: 4, marginVertical: 2, borderRadius: 6, minWidth: 60 },
   buttonRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2002,13 +2325,85 @@ const styles = StyleSheet.create({
   },
   buttonLabel: { fontSize: 14, fontWeight: '600' },
   emptyText: { fontSize: 16, textAlign: 'center', marginVertical: 20 },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
   barcodeItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
+    marginBottom: 8,
+  },
+  barcodeText: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  barcodeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  listItemRow: {
+    flexDirection: 'column',
+    padding: 12,
+  },
+  infoHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+  },
+  infoTextHeader: {
+    flex: 1,
+    marginLeft: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    padding: 8,
+    borderRadius: 8,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  detailText: {
+    fontSize: 14,
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  listItemRow: {
+    flexDirection: 'column',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  infoTextRow: {
+    flex: 1,
+    marginLeft: 12,
+    flexDirection: 'column',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -2038,11 +2433,76 @@ const styles = StyleSheet.create({
   activeTab: { borderBottomWidth: 2, borderBottomColor: '#FFD700' },
   tabText: { fontSize: 12, marginTop: 4 },
   input: { marginBottom: 8, backgroundColor: 'transparent' },
-  hintText: { fontSize: 12, marginBottom: 12 },
   switchContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 16,
+    padding: 12,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+  },
+  passwordContainer: {
+    padding: 12,
+    borderRadius: 8,
+    marginVertical: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ffc107',
+  },
+  welcomeCard: {
+    marginBottom: 16,
+    borderRadius: 16,
+    elevation: 6,
+  },
+  welcomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  welcomeText: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  welcomeTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  welcomeSubtitle: {
+    fontSize: 14,
+    marginTop: 4,
+  },
+  statsCard: {
+    marginBottom: 16,
+    borderRadius: 12,
+    elevation: 4,
+  },
+  statsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  section: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
   },
 });
