@@ -223,7 +223,7 @@ const setupSuperAdmin = async () => {
       const hashedPassword = await bcrypt.hash(plainPassword, 10);
       const uniqueCode = 'SUPERADMINDEMO';
       await User.create({
-        name: 'Salon',
+        name: 'Salon prod',
         mobile: '1234567890',
         password: hashedPassword,
         plainPassword,
@@ -232,7 +232,7 @@ const setupSuperAdmin = async () => {
         uniqueCode,
         adminId: null,
       });
-      console.log('Super Admin created', { name: 'Salon', mobile: '1234567890', pass: 'Admin123' });
+      console.log('Super Admin created', { name: 'Salon prod', mobile: '1234567890', pass: 'Admin123' });
     }
   } catch (error) {
     console.error('Error setting up super admin:', error);
