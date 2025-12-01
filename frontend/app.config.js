@@ -73,7 +73,7 @@ module.exports = {
     // production
     name: 'SalesRewardSalon',
     slug: 'SalesRewardSalon',
-    version: '1.0.2',
+    version: '1.0.1',
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'automatic',
@@ -85,13 +85,13 @@ module.exports = {
     updates: {
       fallbackToCacheTimeout: 0,
       enabled: true,
-      url: 'https://u.expo.dev/c2ff98cc-6ed9-49d2-9c8d-fc6ba528bb93',
+      url: 'https://u.expo.dev/d00d93aa-00e3-49cd-9e22-9bac6f1512ea',
     },
     assetBundlePatterns: ['**/*'],
     scheme: 'SalesRewardSalon',
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.example.SalesRewardSalon',
+      bundleIdentifier: 'com.optico.SalesRewardSalon',
       infoPlist: {
         NSCameraUsageDescription:
           'Allow SalesRewardSalon to access your camera for barcode scanning.',
@@ -103,27 +103,37 @@ module.exports = {
         backgroundColor: '#ffffff',
       },
       // package: 'com.example.SalesRewardSalon-dev',
-      package: 'com.example.SalesRewardSalon',
-      versionCode: 2,
-      permissions: ['CAMERA', 'INTERNET', 'android.permission.CAMERA'],
+      package: 'com.optico.SalesRewardSalon',
+      versionCode: 1,
+      permissions: [
+        'android.permission.CAMERA',
+        'android.permission.INTERNET',
+        'android.permission.POST_NOTIFICATIONS',
+      ],
     },
+    plugins: [
+      [
+        'expo-build-properties',
+        {
+          android: {
+            compileSdkVersion: 35,
+            targetSdkVersion: 35,
+            buildToolsVersion: '35.0.0',
+            enableProguardInReleaseBuilds: true,
+          },
+        },
+      ],
+      'expo-barcode-scanner',
+      'expo-notifications',
+    ],
+
     web: {
       favicon: './assets/favicon.png',
       bundler: 'metro',
       output: 'static',
     },
-    plugins: [
-      [
-        'react-native-vision-camera',
-        {
-          cameraPermissionText:
-            'Allow SalesRewardSalon to access your camera for barcode scanning.',
-        },
-      ],
-      'expo-notifications',
-      'expo-barcode-scanner',
-    ],
-    owner: 'opticoprod',
+
+    // owner: 'opticoprod',
     //pass = OpticoProd@2025
     // owner: 'sameer2210',
     extra: {
@@ -131,7 +141,9 @@ module.exports = {
         //development id
         // projectId: 'e69934f5-43ad-4aae-98c7-066ac5bc5c4f',
         //main production id
-        projectId: 'c2ff98cc-6ed9-49d2-9c8d-fc6ba528bb93',
+        // projectId: 'c2ff98cc-6ed9-49d2-9c8d-fc6ba528bb93',
+        // aab file for playsotre in dev
+        projectId: 'd00d93aa-00e3-49cd-9e22-9bac6f1512ea',
       },
     },
     newArchEnabled: true,

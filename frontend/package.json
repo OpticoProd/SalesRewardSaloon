@@ -24,6 +24,7 @@
     "dotenv": "^16.5.0",
     "expo": "~52.0.47",
     "expo-barcode-scanner": "^13.0.1",
+    "expo-build-properties": "^1.0.9",
     "expo-camera": "~16.0.18",
     "expo-dev-client": "~5.0.19",
     "expo-device": "~7.0.3",
